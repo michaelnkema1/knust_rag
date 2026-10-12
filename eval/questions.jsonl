@@ -1,0 +1,4 @@
+// Format examples only. Replace these with real questions and the page numbers where the answer appears.
+{"id": "q001", "question": "Where can students get counselling support on campus?", "expected_answer": "FILL IN from the guide", "source_doc": "students_guide_2023.pdf", "source_pages": [59], "answerable": true}
+{"id": "q002", "question": "What services does the KNUST Career Services Centre offer?", "expected_answer": "FILL IN from the guide", "source_doc": "students_guide_2023.pdf", "source_pages": [57, 62], "answerable": true}
+{"id": "q003", "question": "How do I apply for a scholarship to study in Germany?", "expected_answer": "", "source_doc": "", "source_pages": [], "answerable": false}

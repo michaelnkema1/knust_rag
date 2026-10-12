@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KNUST Regulations Assistant</title>
+<style>
+  :root { --bg:#f7f6f2; --card:#fff; --ink:#1d1d1b; --muted:#6b6a65; --accent:#0b6e4f; --line:#e3e1da; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161614; --card:#21211e; --ink:#eeede8; --muted:#a3a29b; --accent:#3fbf8f; --line:#33332f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 120px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; font-size:.95rem; }
+  .msg { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin:12px 0; }
+  .me { border-color:var(--accent); }
+  .cite { color:var(--muted); font-size:.85rem; margin-top:8px; }
+  form { position:fixed; left:0; right:0; bottom:0; background:var(--bg); border-top:1px solid var(--line); padding:12px 16px; }
+  .row { max-width:720px; margin:0 auto; display:flex; gap:8px; }
+  input { flex:1; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:1rem; }
+  button { padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; }
+</style>
+</head>
+<body>
+<main>
+  <h1>KNUST Regulations Assistant</h1>
+  <p class="sub">Answers come only from official KNUST documents, with page citations. Always confirm important decisions with your faculty office.</p>
+  <div id="log"></div>
+</main>
+<form id="f">
+  <div class="row">
+    <input id="q" placeholder="e.g. What happens if I miss an exam?" autocomplete="off" required>
+    <button id="b">Ask</button>
+  </div>
+</form>
+<script>
+const log = document.getElementById('log'), f = document.getElementById('f'),
+      q = document.getElementById('q'), b = document.getElementById('b');
+function add(text, cls, cites) {
+  const d = document.createElement('div'); d.className = 'msg ' + (cls || '');
+  d.textContent = text;
+  if (cites && cites.length) {
+    const c = document.createElement('div'); c.className = 'cite';
+    c.textContent = 'Sources: ' + cites.map(x => `[${x.n}] ${x.doc}, p. ${x.pages.join(', ')}`).join(' · ');
+    d.appendChild(c);
+  }
+  log.appendChild(d); d.scrollIntoView({behavior:'smooth'});
+}
+f.addEventListener('submit', async e => {
+  e.preventDefault();
+  const question = q.value.trim(); if (!question) return;
+  add(question, 'me'); q.value = ''; b.disabled = true;
+  try {
+    const r = await fetch('/ask', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Request failed');
+    add(data.answer, '', data.citations);
+  } catch (err) { add('Error: ' + err.message); }
+  b.disabled = false; q.focus();
+});
+</script>
+</body>
+</html>
