@@ -9,3 +9,4 @@ eval/results/*.csv
 
 # Logs
 *.log
+eval/results/*.partial.jsonl

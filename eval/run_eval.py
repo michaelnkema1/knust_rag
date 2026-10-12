@@ -25,10 +25,14 @@ EVAL_DIR = Path(__file__).parent
 QUESTIONS = EVAL_DIR / "questions.jsonl"
 RESULTS_DIR = EVAL_DIR / "results"
 
-JUDGE = """You grade answers to questions about university regulations.
-Expected answer: {expected}
-Model answer: {answer}
-Does the model answer state the same key facts as the expected answer, without contradicting it?
+JUDGE = """You grade a chatbot's answer to a student's question about university regulations.
+Question: {question}
+Reference answer: {expected}
+Chatbot answer: {answer}
+
+Mark CORRECT if the chatbot answer gets the main point of the reference answer right and contradicts nothing in it.
+Leaving out secondary details is fine. Extra details are fine unless they contradict the reference.
+Mark INCORRECT if it misses or gets wrong the main point, contradicts the reference, or refuses to answer.
 Reply with exactly one word: CORRECT or INCORRECT."""
 
 
@@ -42,9 +46,9 @@ def pages_hit(expected_pages: list[int], doc: str, items: list[dict]) -> bool:
     return any(i["doc"] == doc and exp & set(i["pages"]) for i in items)
 
 
-def judge(expected: str, answer: str) -> bool:
-    out = llm.chat([{"role": "user", "content": JUDGE.format(expected=expected, answer=answer)}])
-    return out["text"].strip().upper().startswith("CORRECT")
+def judge(question: str, expected: str, answer: str) -> bool:
+    out = llm.chat([{"role": "user", "content": JUDGE.format(question=question, expected=expected, answer=answer)}])
+    return out["text"].strip().strip("*").upper().startswith("CORRECT")
 
 
 def main():
@@ -56,24 +60,51 @@ def main():
     from src.answer import ask  # imported here so --retrieval-only needs no API key
 
     qs = load_questions()
+
+    # Checkpoint: every scored question is saved immediately, so a crash or API outage loses nothing.
+    # Re-running with the same --tag resumes where it stopped (delete the .partial file to start fresh).
+    RESULTS_DIR.mkdir(exist_ok=True)
+    ckpt = RESULTS_DIR / f"{args.tag or 'untagged'}{'-retr' if args.retrieval_only else ''}.partial.jsonl"
+    done = {}
+    if ckpt.exists():
+        for line in ckpt.read_text(encoding="utf-8").splitlines():
+            r = json.loads(line)
+            if not r.get("error"):
+                done[r["id"]] = r
+        print(f"Resuming: {len(done)} questions already scored in {ckpt.name}")
+
     rows = []
     for q in qs:
+        if q["id"] in done:
+            rows.append(done[q["id"]])
+            continue
         row = {"id": q["id"], "answerable": q["answerable"]}
-        if args.retrieval_only:
-            chunks = retrieve(q["question"])
-            row["hit"] = pages_hit(q.get("source_pages", []), q.get("source_doc", ""), chunks) if q["answerable"] else None
-        else:
-            r = ask(q["question"])
-            row.update(answer=r["answer"], refused=r["refused"], latency_s=r["latency_s"],
-                       prompt_tokens=r["prompt_tokens"], completion_tokens=r["completion_tokens"])
-            if q["answerable"]:
-                row["hit"] = pages_hit(q["source_pages"], q["source_doc"], r["retrieved"])
-                row["citation_ok"] = pages_hit(q["source_pages"], q["source_doc"], r["citations"])
-                row["correct"] = (not r["refused"]) and judge(q["expected_answer"], r["answer"])
+        try:
+            if args.retrieval_only:
+                chunks = retrieve(q["question"])
+                row["hit"] = pages_hit(q.get("source_pages", []), q.get("source_doc", ""), chunks) if q["answerable"] else None
             else:
-                row["correct"] = r["refused"]
-        rows.append(row)
-        print(f"{q['id']}: {'ok' if row.get('correct', row.get('hit')) else 'MISS'}")
+                r = ask(q["question"])
+                row.update(answer=r["answer"], refused=r["refused"], latency_s=r["latency_s"],
+                           prompt_tokens=r["prompt_tokens"], completion_tokens=r["completion_tokens"])
+                if q["answerable"]:
+                    row["hit"] = pages_hit(q["source_pages"], q["source_doc"], r["retrieved"])
+                    row["citation_ok"] = pages_hit(q["source_pages"], q["source_doc"], r["citations"])
+                    row["correct"] = (not r["refused"]) and judge(q["question"], q["expected_answer"], r["answer"])
+                else:
+                    row["correct"] = r["refused"]
+        except Exception as e:  # e.g. provider outage after all retries: record it, keep going
+            row["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+            print(f"{q['id']}: ERROR ({type(e).__name__}) - rerun with the same --tag to retry it")
+        with open(ckpt, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+        if not row.get("error"):
+            rows.append(row)
+            print(f"{q['id']}: {'ok' if row.get('correct', row.get('hit')) else 'MISS'}")
+
+    n_err = len(qs) - len(rows)
+    if n_err:
+        print(f"\n{n_err} questions errored and are excluded below. Re-run with --tag {args.tag!r} to retry them.")
 
     ans = [r for r in rows if r["answerable"]]
     unans = [r for r in rows if not r["answerable"]]
@@ -83,7 +114,7 @@ def main():
         "time": datetime.now().isoformat(timespec="seconds"),
         "chunk_size": config.CHUNK_SIZE, "retrieval": config.RETRIEVAL_MODE,
         "top_k": config.TOP_K, "model": None if args.retrieval_only else config.LLM_MODEL,
-        "n": len(rows), f"hit@{config.TOP_K}": pct([r["hit"] for r in ans]),
+        "n": len(rows), "n_errors": n_err, f"hit@{config.TOP_K}": pct([r["hit"] for r in ans]),
     }
     if not args.retrieval_only:
         lat = sorted(r["latency_s"] for r in rows)
