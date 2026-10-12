@@ -31,7 +31,9 @@ def ask(question: str, k: int | None = None, mode: str | None = None, model: str
     out = llm.chat(messages, model=model)
     text = out["text"].strip()
 
-    cited_nums = sorted({int(n) for n in re.findall(r"\[(\d+)\]", text) if 0 < int(n) <= len(chunks)})
+    # Handles [2], [1, 4] and [1][3] styles
+    nums = {int(n) for group in re.findall(r"\[([\d,\s]+)\]", text) for n in re.findall(r"\d+", group)}
+    cited_nums = sorted(n for n in nums if 0 < n <= len(chunks))
     citations = [
         {"n": n, "doc": chunks[n - 1]["doc"], "pages": chunks[n - 1]["pages"]} for n in cited_nums
     ]
