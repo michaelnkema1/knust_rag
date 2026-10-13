@@ -58,7 +58,7 @@ LLM_MODEL=gemini-3.1-flash-lite
 Download the [2023 Students' Guide PDF](https://www.knust.edu.gh/sites/default/files/2023-06/Students%27%20Guide%20and%20Code%20of%20Conduct.pdf) into `data/raw/students_guide_2023.pdf`, then:
 
 ```bash
-python -m src.ingest                                    # build the index (226 pages → 129 chunks at 600 words)
+python -m src.ingest                                    # build the index (226 pages → 257 chunks at the default 300 words)
 python -m src.answer "Where can I get counselling support?"
 uvicorn app.main:app --reload                           # chat UI at http://localhost:8000
 python -m pytest -q                                     # unit tests
@@ -111,14 +111,19 @@ Plain vector search did best. The questions are paraphrased in a student's own w
 
 ### End to end
 
-92 questions (79 answerable, 13 unanswerable), top 5 chunks, 600-word chunks.
+92 questions (79 answerable, 13 unanswerable), vector retrieval, Gemini 3.1 Flash-Lite. Hit@k uses k = the number of chunks retrieved.
 
-| Config | Hit@5 | Accuracy | Citations | Refusals | p50 / p95 latency |
-| --- | --- | --- | --- | --- | --- |
-| Baseline: vector, Gemini 3.1 Flash-Lite, prompt v1 | 75.9% | 83.5% | 67.1% | 92.3% | 5.1 s / 21.1 s |
-| Prompt v2 (answer from partial support, refuse only when nothing is relevant) | 75.9% | **87.3%** | 69.6% | 92.3% | 2.6 s / 5.5 s |
+| Config | Hit@k | Accuracy | Citations | Refusals | Wrong refusals | p50 / p95 latency |
+| --- | --- | --- | --- | --- | --- | --- |
+| Baseline: 600-word chunks, top 5, prompt v1 | 75.9% | 83.5% | 67.1% | 92.3% | 8 | 5.1 s / 21.1 s |
+| 600-word chunks, top 5, prompt v2 | 75.9% | 87.3% | 69.6% | 92.3% | 6 | 2.6 s / 5.5 s |
+| **300-word chunks, top 10, prompt v2 (current default)** | 88.6% | **87.3%** | **79.7%** | 84.6% | **2** | 4.1 s / 6.1 s |
 
-Prompt v2 fixed 3 answers and broke none, cut wrong refusals from 8 to 6, and kept refusals on unanswerable questions unchanged. Both prompts are in `src/answer.py`; choose with `PROMPT_VERSION`. Each configuration was run once, so differences of a question or two may be noise. The latency drop reflects lower load on the free API tier during the second run, not the prompt.
+**Prompt v2** answers whenever the sources support an answer, even partially, and refuses only when nothing retrieved is relevant. Against v1 it fixed 3 answers and broke none, with no change on unanswerable questions. Both prompts are in `src/answer.py`; choose with `PROMPT_VERSION`.
+
+**300-word chunks with top 10** give the model the same amount of text as 5 × 600 words, but in finer pieces. Accuracy is the same, but answers are much better grounded: citation correctness rose 10 points and wrong refusals fell from 6 to 2. For example, the "how many members does a new club need?" question now finds the exact sentence (750 members), which the 600-word setup missed because it sat in a neighbouring chunk. The cost is two unanswerable questions now get answers instead of refusals. Both are borderline (changing courses after the portal closes, and reporting bullying), and the answers quote relevant rules from the guide rather than inventing anything.
+
+The two v2 configurations got the same overall accuracy but failed on different questions (6 fixed, 6 newly wrong), which suggests a run-to-run noise of a few points. A repeat run of the 600-word v2 setup, to measure that variation directly, was stopped when the free tier's daily request limit ran out; finish it with `./run_experiments.sh` (completed questions are skipped). Latency differences between rows mostly reflect load on the free API tier.
 
 ### Chunk size (retrieval only, top 5)
 
@@ -128,7 +133,7 @@ Prompt v2 fixed 3 answers and broke none, cut wrong refusals from 8 to 6, and ke
 | **600** | 129 | **75.9%** |
 | 1000 | 77 | 72.2% |
 
-Hit@5 checks whether a retrieved chunk's *pages* include the source page, which favours large chunks that span many pages. Smaller chunks need an end-to-end run with the same total context (e.g. 10 × 300 words vs 5 × 600) for a fair comparison.
+Hit@5 checks whether a retrieved chunk's *pages* include the source page, which favours large chunks that span many pages, and here 300-word chunks also got half the total text. This table therefore understates small chunks; the end-to-end comparison above (10 × 300 vs 5 × 600 words) is the fair one.
 
 ### What the baseline shows
 

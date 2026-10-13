@@ -13,15 +13,15 @@ CHROMA_DIR = ROOT / "data" / "chroma"
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
 # Chunking (experiment variables)
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))       # approx. words per chunk
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "300"))       # approx. words per chunk
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
 
 # One index per chunk size, so several can exist side by side for experiments
 CHUNKS_PATH = ROOT / "data" / f"chunks_{CHUNK_SIZE}.jsonl"
 COLLECTION = os.getenv("COLLECTION", f"knust_regs_{CHUNK_SIZE}")
 
 # Retrieval
-TOP_K = int(os.getenv("TOP_K", "5"))
+TOP_K = int(os.getenv("TOP_K", "10"))
 RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "vector")  # vector | bm25 | hybrid
 
 # LLM: any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, ...)
