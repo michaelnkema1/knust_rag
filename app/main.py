@@ -102,8 +102,14 @@ def debug_llm(request: Request):
         out = llm.chat([{"role": "user", "content": "Reply with OK"}], max_retries=0)
         return {"ok": True, "model": config.LLM_MODEL, "reply": out["text"][:20], "latency_s": out["latency_s"]}
     except Exception as e:  # noqa: BLE001 - diagnostic endpoint
+        import hashlib
+        key = config.LLM_API_KEY.strip()
         return {"ok": False, "model": config.LLM_MODEL, "base_url": config.LLM_BASE_URL,
-                "key_set": bool(config.LLM_API_KEY), "error": type(e).__name__, "detail": str(e)[:400]}
+                "key_set": bool(key), "key_len": len(key),
+                # A short hash lets the owner check which key the server has without revealing it.
+                "key_fingerprint": hashlib.sha256(key.encode()).hexdigest()[:10],
+                "key_has_whitespace": key != config.LLM_API_KEY,
+                "error": type(e).__name__, "detail": str(e)[:1500]}
 
 
 @app.get("/docs-pdf/{name}")

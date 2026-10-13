@@ -22,7 +22,7 @@ def client() -> OpenAI:
     global _client
     if _client is None:
         # Fail fast on stalled requests and do our own retries, so a long run never hangs silently.
-        _client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY or "none",
+        _client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY.strip() or "none",
                          timeout=60.0, max_retries=0)
     return _client
 
