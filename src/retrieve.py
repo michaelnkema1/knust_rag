@@ -1,9 +1,19 @@
-"""Vector, BM25 and hybrid retrieval over the indexed chunks."""
+"""Vector, BM25 and hybrid retrieval over the indexed chunks.
+
+The index is two small files per chunk size, built by `python -m src.ingest`:
+  data/index/chunks_<size>.jsonl     chunk text + doc + pages
+  data/index/embeddings_<size>.npy   one normalized vector per chunk (same order)
+Vector search is a dot product in NumPy, which is plenty fast for a few hundred chunks
+and needs no vector database.
+"""
 import json
 import re
 from functools import lru_cache
 
+import numpy as np
+
 from src import config
+from src.embed import embed_query
 
 
 def _tokenize(text: str) -> list[str]:
@@ -17,40 +27,29 @@ def _chunks() -> list[dict]:
 
 
 @lru_cache(maxsize=1)
+def _embeddings() -> np.ndarray:
+    emb = np.load(config.EMBEDDINGS_PATH)
+    if len(emb) != len(_chunks()):
+        raise RuntimeError(f"{config.EMBEDDINGS_PATH.name} and {config.CHUNKS_PATH.name} are out of sync; re-run ingest")
+    return emb
+
+
+@lru_cache(maxsize=1)
 def _bm25():
     from rank_bm25 import BM25Okapi
     return BM25Okapi([_tokenize(c["text"]) for c in _chunks()])
 
 
-@lru_cache(maxsize=1)
-def _collection():
-    import chromadb
-    from chromadb.utils import embedding_functions
-    client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
-    embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=config.EMBED_MODEL)
-    return client.get_collection(config.COLLECTION, embedding_function=embed_fn)
-
-
 def vector_search(query: str, k: int) -> list[dict]:
-    res = _collection().query(query_texts=[query], n_results=k)
-    by_id = {c["id"]: c for c in _chunks()}
-    out = []
-    for cid, dist in zip(res["ids"][0], res["distances"][0]):
-        c = dict(by_id[cid])
-        c["score"] = 1 - dist
-        out.append(c)
-    return out
+    scores = _embeddings() @ embed_query(query)
+    top = np.argsort(-scores)[:k]
+    return [{**_chunks()[i], "score": float(scores[i])} for i in top]
 
 
 def bm25_search(query: str, k: int) -> list[dict]:
     scores = _bm25().get_scores(_tokenize(query))
     ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
-    out = []
-    for i in ranked:
-        c = dict(_chunks()[i])
-        c["score"] = float(scores[i])
-        out.append(c)
-    return out
+    return [{**_chunks()[i], "score": float(scores[i])} for i in ranked]
 
 
 def hybrid_search(query: str, k: int, rrf_k: int = 60) -> list[dict]:

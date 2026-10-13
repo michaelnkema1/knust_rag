@@ -1,0 +1,5 @@
+# Everything for local work: the runtime, plus PDF ingestion, evals and tests.
+-r requirements.txt
+pypdf>=4.0
+pytest>=8.0
+httpx>=0.27   # FastAPI TestClient

@@ -11,3 +11,7 @@ eval/results/*.csv
 *.log
 eval/results/*.partial.jsonl
 data/feedback.jsonl
+
+# Embedding model cache and old Chroma index
+data/models/
+data/chroma/

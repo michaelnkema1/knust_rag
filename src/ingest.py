@@ -1,4 +1,4 @@
-"""Parse PDFs in data/raw/, chunk them (keeping page numbers), embed into Chroma.
+"""Parse PDFs in data/raw/, chunk them (keeping page numbers), embed with fastembed into data/index/
 
 Usage:  python -m src.ingest            # rebuild the index
         CHUNK_SIZE=300 python -m src.ingest   # experiment with chunk size
@@ -77,26 +77,14 @@ def save_chunks(chunks: list[dict]) -> None:
 
 
 def index_chunks(chunks: list[dict]) -> None:
-    import chromadb
-    from chromadb.utils import embedding_functions
+    """Embed every chunk and save the vectors next to the chunk file (same order)."""
+    import numpy as np
 
-    client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
-    try:
-        client.delete_collection(config.COLLECTION)
-    except Exception:
-        pass
-    embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=config.EMBED_MODEL)
-    col = client.create_collection(config.COLLECTION, embedding_function=embed_fn,
-                                   metadata={"hnsw:space": "cosine"})
-    batch = 64
-    for i in range(0, len(chunks), batch):
-        part = chunks[i:i + batch]
-        col.add(
-            ids=[c["id"] for c in part],
-            documents=[c["text"] for c in part],
-            metadatas=[{"doc": c["doc"], "pages": ",".join(map(str, c["pages"]))} for c in part],
-        )
-    print(f"Indexed {len(chunks)} chunks into '{config.COLLECTION}' (chunk size {config.CHUNK_SIZE})")
+    from src.embed import embed_documents
+
+    emb = embed_documents([c["text"] for c in chunks])
+    np.save(config.EMBEDDINGS_PATH, emb)
+    print(f"Indexed {len(chunks)} chunks -> {config.EMBEDDINGS_PATH.name} {emb.shape} (chunk size {config.CHUNK_SIZE})")
 
 
 if __name__ == "__main__":

@@ -12,8 +12,8 @@ question → retrieve top-k chunks (vector | BM25 | hybrid) → LLM with numbere
 
 | Part | File | What it does |
 | --- | --- | --- |
-| Ingestion | `src/ingest.py` | PDF → cleaned text per page → overlapping word-window chunks that remember their pages → embedded with `BAAI/bge-small-en-v1.5` into ChromaDB |
-| Retrieval | `src/retrieve.py` | Dense vector search, BM25 keyword search, or hybrid (reciprocal rank fusion) |
+| Ingestion | `src/ingest.py`, `src/embed.py` | PDF → cleaned text per page → overlapping word-window chunks that remember their pages → embedded with `BAAI/bge-small-en-v1.5` (fastembed, ONNX) → `data/index/` |
+| Retrieval | `src/retrieve.py` | Dense vector search (NumPy dot product over the saved vectors), BM25 keyword search, or hybrid (reciprocal rank fusion) |
 | Answering | `src/answer.py` | Strict prompt: sources only, cite every claim, refuse when unsupported; parses `[2]`, `[1, 4]` and `[1][3]` citation styles |
 | LLM client | `src/llm.py` | Any OpenAI-compatible endpoint, set in `.env`; 60 s timeout with automatic retries on rate limits and server errors |
 | API + UI | `app/main.py`, `app/static/index.html` | FastAPI app and chat interface (see below) |
@@ -32,15 +32,30 @@ The default model is **Gemini 3.1 Flash-Lite** through Google's OpenAI-compatibl
 | --- | --- |
 | `GET /` | Chat page |
 | `POST /ask` | `{"question": "..."}` → answer, citations (with excerpts), retrieved chunks, latency, tokens |
-| `GET /docs-pdf/{name}` | Serves an indexed PDF from `data/raw/` (nothing else), e.g. `/docs-pdf/students_guide_2023.pdf#page=78` |
+| `GET /docs-pdf/{name}` | Serves an indexed PDF from `data/raw/` (nothing else), or redirects to the official public copy when the PDF isn't on the server, e.g. `/docs-pdf/students_guide_2023.pdf#page=78` |
 | `POST /feedback` | `{"question", "answer", "rating": "up" or "down", "comment"}` |
+
+## Deployment (Render free tier)
+
+The server is kept small enough for Render's free plan (512 MB RAM): `requirements.txt` has no PyTorch and no vector database. Embeddings come from fastembed (ONNX Runtime), which gives the same `bge-small-en-v1.5` vectors as sentence-transformers (cosine 1.00000 on every chunk; retrieval hit@10 unchanged at 88.6%), and the index is a NumPy file committed in `data/index/`. Measured locally with only the server requirements: **~295 MB peak memory** with the model and index loaded, ~60 ms per retrieval.
+
+1. Push the repo to GitHub.
+2. In Render: **New → Blueprint**, pick the repo. `render.yaml` sets the build (`pip install -r requirements.txt && python -m src.embed`), start command, health check and settings.
+3. When asked, paste your `LLM_API_KEY`. It stays in Render's dashboard and is never committed.
+4. Open the `onrender.com` URL once the deploy is live.
+
+Free-tier behaviour to know about:
+- The service sleeps after 15 minutes without traffic; the next visit takes about a minute to wake it.
+- The disk is wiped on restart, so `data/feedback.jsonl` doesn't persist there.
+- Citation links redirect to the official KNUST copy of the PDF, since the PDF isn't in the repo.
+- `/ask` is limited to `ASK_RATE_LIMIT` questions per minute per visitor (default 8) so a public link can't use up the API quota.
 
 ## Setup
 
 Requires Python 3.10+.
 
 ```bash
-./setup_env.sh                    # creates .venv; installs CPU-only PyTorch (~200 MB instead of ~2 GB) and requirements
+./setup_env.sh                    # creates .venv, installs requirements-dev.txt, downloads the embedding model
 cp .env.example .env              # then add your API key, base URL and model
 source .venv/bin/activate
 ```
@@ -58,7 +73,7 @@ LLM_MODEL=gemini-3.1-flash-lite
 Download the [2023 Students' Guide PDF](https://www.knust.edu.gh/sites/default/files/2023-06/Students%27%20Guide%20and%20Code%20of%20Conduct.pdf) into `data/raw/students_guide_2023.pdf`, then:
 
 ```bash
-python -m src.ingest                                    # build the index (226 pages → 257 chunks at the default 300 words)
+python -m src.ingest                                    # rebuild the index (226 pages → 257 chunks at the default 300 words)
 python -m src.answer "Where can I get counselling support?"
 uvicorn app.main:app --reload                           # chat UI at http://localhost:8000
 python -m pytest -q                                     # unit tests
@@ -159,8 +174,10 @@ app/            FastAPI app and chat page
 src/            config, ingestion, retrieval, LLM client, answering
 eval/           question generation, review export, eval runner, questions.jsonl
 tests/          unit tests
+data/index/     chunks + embeddings per chunk size (committed, so servers don't rebuild)
 data/raw/       source PDFs (not committed)
 setup_env.sh    one-time environment setup
+render.yaml     Render deployment blueprint
 ```
 
 ## Limitations
