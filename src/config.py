@@ -30,4 +30,4 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
 # Answer prompt version (see SYSTEM_PROMPTS in src/answer.py)
-PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
+PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v2")

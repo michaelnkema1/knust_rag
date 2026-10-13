@@ -115,9 +115,20 @@ Plain vector search did best. The questions are paraphrased in a student's own w
 
 | Config | Hit@5 | Accuracy | Citations | Refusals | p50 / p95 latency |
 | --- | --- | --- | --- | --- | --- |
-| Baseline: vector, Gemini 3.1 Flash-Lite | 75.9% | 83.5% | 67.1% | 92.3% | 5.1 s / 21.1 s |
+| Baseline: vector, Gemini 3.1 Flash-Lite, prompt v1 | 75.9% | 83.5% | 67.1% | 92.3% | 5.1 s / 21.1 s |
+| Prompt v2 (answer from partial support, refuse only when nothing is relevant) | 75.9% | **87.3%** | 69.6% | 92.3% | 2.6 s / 5.5 s |
 
-More rows (chunk size, retrieval method, second model) will be added as experiments finish.
+Prompt v2 fixed 3 answers and broke none, cut wrong refusals from 8 to 6, and kept refusals on unanswerable questions unchanged. Both prompts are in `src/answer.py`; choose with `PROMPT_VERSION`. Each configuration was run once, so differences of a question or two may be noise. The latency drop reflects lower load on the free API tier during the second run, not the prompt.
+
+### Chunk size (retrieval only, top 5)
+
+| Chunk size (words) | Chunks | Hit@5 |
+| --- | --- | --- |
+| 300 | 257 | 72.2% |
+| **600** | 129 | **75.9%** |
+| 1000 | 77 | 72.2% |
+
+Hit@5 checks whether a retrieved chunk's *pages* include the source page, which favours large chunks that span many pages. Smaller chunks need an end-to-end run with the same total context (e.g. 10 × 300 words vs 5 × 600) for a fair comparison.
 
 ### What the baseline shows
 
