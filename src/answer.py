@@ -14,6 +14,23 @@ Rules:
 - Be concise: 1-4 sentences, plain language."""
 
 
+def excerpt(text: str, answer: str = "", words: int = 110) -> str:
+    """Pick the ~110-word window of a chunk that shares the most words with the answer, for display."""
+    toks = text.split()
+    if len(toks) <= words:
+        return " ".join(toks)
+    key = {w for w in re.findall(r"[a-z]{4,}", answer.lower())}
+    hits = [1 if re.sub(r"[^a-z]", "", t.lower()) in key else 0 for t in toks]
+    cur = sum(hits[:words])
+    best, score = 0, cur
+    for i in range(1, len(toks) - words + 1):
+        cur += hits[i + words - 1] - hits[i - 1]
+        if cur > score:
+            best, score = i, cur
+    out = " ".join(toks[best:best + words])
+    return ("…" if best > 0 else "") + out + ("…" if best + words < len(toks) else "")
+
+
 def format_sources(chunks: list[dict]) -> str:
     parts = []
     for i, c in enumerate(chunks, start=1):
@@ -35,7 +52,9 @@ def ask(question: str, k: int | None = None, mode: str | None = None, model: str
     nums = {int(n) for group in re.findall(r"\[([\d,\s]+)\]", text) for n in re.findall(r"\d+", group)}
     cited_nums = sorted(n for n in nums if 0 < n <= len(chunks))
     citations = [
-        {"n": n, "doc": chunks[n - 1]["doc"], "pages": chunks[n - 1]["pages"]} for n in cited_nums
+        {"n": n, "doc": chunks[n - 1]["doc"], "pages": chunks[n - 1]["pages"],
+         "excerpt": excerpt(chunks[n - 1]["text"], text)}
+        for n in cited_nums
     ]
     return {
         "question": question,

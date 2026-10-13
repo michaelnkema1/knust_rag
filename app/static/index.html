@@ -59,7 +59,22 @@
   .bot .bubble { border-bottom-left-radius: 4px; }
   .bubble.error { border-color: #B5523B; }
   .cite { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: .82rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; }
-  .cite span { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+  .cite button { font: inherit; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  .cite button:hover, .cite button[aria-expanded="true"] { border-color: var(--accent); color: var(--ink); }
+  .ref { display: inline-flex; gap: 2px; margin: 0 2px; vertical-align: 2px; }
+  .ref button { font: 700 .7rem/1.5 system-ui, sans-serif; color: var(--accent-ink); background: var(--accent); border: 0; border-radius: 5px; padding: 0 6px; cursor: pointer; min-width: 18px; }
+  .ref button:hover { filter: brightness(1.08); }
+  .source { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 8px 8px 0; font-size: .88rem; white-space: normal; }
+  .source .src-head { font-weight: 600; margin-bottom: 4px; }
+  .source blockquote { margin: 0 0 8px; color: var(--muted); font-style: italic; }
+  .source a { color: var(--ink); font-weight: 600; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+  .fb { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: .82rem; color: var(--muted); white-space: normal; flex-wrap: wrap; }
+  .fb button.thumb { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; cursor: pointer; color: var(--muted); font: inherit; line-height: 1.2; }
+  .fb button.thumb:hover { border-color: var(--accent); color: var(--ink); }
+  .fb button.thumb[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .fb .why { display: flex; gap: 6px; width: 100%; margin-top: 4px; }
+  .fb .why input { padding: 7px 10px; border-radius: 8px; font-size: .85rem; }
+  .fb .why button { border: 0; border-radius: 8px; padding: 0 12px; background: var(--btn); color: var(--btn-ink); font: inherit; font-weight: 600; cursor: pointer; }
 
   /* Loading bubble */
   .typing { display: flex; align-items: center; gap: 12px; }
@@ -147,15 +162,94 @@ function row(cls) {
 
 function addUser(text) { row('me').textContent = text; }
 
-function addBot(text, cites, isError) {
-  const bub = row('bot'); bub.textContent = text;
-  if (isError) bub.classList.add('error');
-  if (cites && cites.length) {
-    const c = document.createElement('div'); c.className = 'cite';
-    for (const x of cites) { const s = document.createElement('span'); s.textContent = `[${x.n}] p. ${x.pages.join(', ')}`; s.title = x.doc; c.appendChild(s); }
-    bub.appendChild(c);
+const docName = d => d.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const pageRange = p => p.length > 1 ? `pages ${p[0]}–${p[p.length - 1]}` : `page ${p[0]}`;
+
+function el(tag, attrs = {}, text) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// Answer text with [1] / [1, 4] / [1][3] turned into clickable badges that open the matching source.
+function renderAnswer(container, text, citeMap, toggle) {
+  const re = /\[([\d,\s]+)\]/g; let last = 0, m;
+  while ((m = re.exec(text))) {
+    container.append(text.slice(last, m.index));
+    const ref = el('span', {class: 'ref'});
+    for (const n of m[1].match(/\d+/g)) {
+      if (!citeMap[n]) continue;
+      const btn = el('button', {type: 'button', 'aria-label': `Show source ${n}`, 'data-n': n}, n);
+      btn.addEventListener('click', () => toggle(n));
+      ref.append(btn);
+    }
+    if (ref.childNodes.length) container.append(ref);
+    last = re.lastIndex;
   }
+  container.append(text.slice(last));
+}
+
+function addBot(data, isError) {
+  const bub = row('bot');
+  if (isError) { bub.textContent = data; bub.classList.add('error'); return; }
+  const cites = data.citations || [], citeMap = Object.fromEntries(cites.map(c => [String(c.n), c]));
+  const body = el('div'); bub.append(body);
+  const panel = el('div', {class: 'source', hidden: ''});
+  let open = null;
+  const tagButtons = {};
+  const toggle = n => {
+    if (open === n) { panel.hidden = true; open = null; }
+    else {
+      const c = citeMap[n]; panel.replaceChildren();
+      panel.append(el('div', {class: 'src-head'}, `Source [${n}] · ${docName(c.doc)}, ${pageRange(c.pages)}`));
+      if (c.excerpt) panel.append(el('blockquote', {}, c.excerpt));
+      panel.append(el('a', {href: `/docs-pdf/${encodeURIComponent(c.doc)}#page=${c.pages[0]}`, target: '_blank', rel: 'noopener'}, `Open page ${c.pages[0]} in the PDF ↗`));
+      panel.hidden = false; open = n;
+    }
+    for (const [k, b] of Object.entries(tagButtons)) b.setAttribute('aria-expanded', String(k === open));
+  };
+  renderAnswer(body, data.answer, citeMap, toggle);
+
+  if (cites.length) {
+    const c = el('div', {class: 'cite'});
+    for (const x of cites) {
+      const b = el('button', {type: 'button', 'aria-expanded': 'false', title: docName(x.doc)}, `[${x.n}] p. ${x.pages.join(', ')}`);
+      b.addEventListener('click', () => toggle(String(x.n)));
+      tagButtons[String(x.n)] = b; c.append(b);
+    }
+    bub.append(c, panel);
+  }
+  bub.append(feedbackRow(data));
   bub.parentElement.scrollIntoView({behavior: 'smooth', block: 'end'});
+}
+
+// Thumbs up/down, saved by the backend to data/feedback.jsonl. Thumbs-down can carry a short comment.
+function feedbackRow(data) {
+  const wrap = el('div', {class: 'fb'});
+  const label = el('span', {}, 'Was this helpful?');
+  const up = el('button', {type: 'button', class: 'thumb', 'aria-pressed': 'false', 'aria-label': 'Helpful'}, '👍');
+  const down = el('button', {type: 'button', class: 'thumb', 'aria-pressed': 'false', 'aria-label': 'Not helpful'}, '👎');
+  wrap.append(label, up, down);
+  const send = async (rating, comment = '') => {
+    try {
+      const r = await fetch('/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({question: data.question, answer: data.answer, rating, comment, citations: data.citations || []})});
+      if (!r.ok) throw new Error();
+      wrap.replaceChildren(el('span', {}, rating === 'up' ? 'Thanks! Glad it helped.' : 'Thanks — this will help improve the assistant.'));
+    } catch { label.textContent = 'Couldn’t send feedback. Try again?'; }
+  };
+  up.addEventListener('click', () => { up.setAttribute('aria-pressed', 'true'); send('up'); });
+  down.addEventListener('click', () => {
+    down.setAttribute('aria-pressed', 'true'); up.disabled = true;
+    if (wrap.querySelector('.why')) return;
+    const why = el('form', {class: 'why'});
+    const inp = el('input', {placeholder: 'What was wrong? (optional)', maxlength: '1000', 'aria-label': 'What was wrong?'});
+    why.append(inp, el('button', {type: 'submit'}, 'Send'));
+    why.addEventListener('submit', e => { e.preventDefault(); send('down', inp.value.trim()); });
+    wrap.append(why); inp.focus({preventScroll: true}); why.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  });
+  return wrap;
 }
 
 function showTyping() {
@@ -182,9 +276,9 @@ async function ask(question) {
     const r = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || 'Request failed');
-    stop(); addBot(data.answer, data.citations);
+    stop(); addBot(data);
   } catch (err) {
-    stop(); addBot('Sorry, something went wrong: ' + err.message + '. Please try again.', null, true);
+    stop(); addBot('Sorry, something went wrong: ' + err.message + '. Please try again.', true);
   }
   b.disabled = false; q.disabled = false; q.focus();
 }

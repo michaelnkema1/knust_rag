@@ -16,10 +16,24 @@ question → retrieve top-k chunks (vector | BM25 | hybrid) → LLM with numbere
 | Retrieval | `src/retrieve.py` | Dense vector search, BM25 keyword search, or hybrid (reciprocal rank fusion) |
 | Answering | `src/answer.py` | Strict prompt: sources only, cite every claim, refuse when unsupported; parses `[2]`, `[1, 4]` and `[1][3]` citation styles |
 | LLM client | `src/llm.py` | Any OpenAI-compatible endpoint, set in `.env`; 60 s timeout with automatic retries on rate limits and server errors |
-| API + UI | `app/main.py` | FastAPI `POST /ask` and a single-page chat interface |
+| API + UI | `app/main.py`, `app/static/index.html` | FastAPI app and chat interface (see below) |
 | Evaluation | `eval/` | Question drafting, review export, and a resumable scoring runner |
 
 The default model is **Gemini 3.1 Flash-Lite** through Google's OpenAI-compatible endpoint. OpenAI, Groq or a local Ollama model work by changing three lines in `.env`.
+
+## Chat interface
+
+- **Clickable citations.** The `[n]` markers in an answer and the page tags under it open the source passage (the ~110 words of the retrieved chunk that best match the answer) with a link that opens the PDF at that page.
+- **Feedback.** Each answer has thumbs up/down. A thumbs-down can carry a short comment. Feedback is appended to `data/feedback.jsonl` (git-ignored); thumbs-down rows are candidates for new eval questions.
+- **Loading state.** Animated typing dots and a status line that changes the longer a request takes, so slow free-tier responses don't look frozen.
+- **Theme.** Deep green `#0F372F` and gold `#ECBC6B`, with a dark mode that follows the system setting.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /` | Chat page |
+| `POST /ask` | `{"question": "..."}` → answer, citations (with excerpts), retrieved chunks, latency, tokens |
+| `GET /docs-pdf/{name}` | Serves an indexed PDF from `data/raw/` (nothing else), e.g. `/docs-pdf/students_guide_2023.pdf#page=78` |
+| `POST /feedback` | `{"question", "answer", "rating": "up" or "down", "comment"}` |
 
 ## Setup
 
@@ -97,11 +111,30 @@ Plain vector search did best. The questions are paraphrased in a student's own w
 
 ### End to end
 
-| Config | Hit@5 | Accuracy | Citations | Refusals | p95 latency |
-| --- | --- | --- | --- | --- | --- |
-| Baseline: vector, 600-word chunks, Gemini 3.1 Flash-Lite | | | | | |
+92 questions (79 answerable, 13 unanswerable), top 5 chunks, 600-word chunks.
 
-_In progress._ More rows (chunk size, retrieval method, second model) will be added as experiments finish.
+| Config | Hit@5 | Accuracy | Citations | Refusals | p50 / p95 latency |
+| --- | --- | --- | --- | --- | --- |
+| Baseline: vector, Gemini 3.1 Flash-Lite | 75.9% | 83.5% | 67.1% | 92.3% | 5.1 s / 21.1 s |
+
+More rows (chunk size, retrieval method, second model) will be added as experiments finish.
+
+### What the baseline shows
+
+Breakdown of the 79 answerable questions:
+
+| Outcome | Count |
+| --- | --- |
+| Source page retrieved, answer correct, citation correct | 52 |
+| Source page **not** retrieved, but answer still correct | 12 |
+| Source page retrieved, answer correct, but it cited a different chunk | 2 |
+| Wrongly refused ("I don't know") although the answer was in the guide | 8 |
+| Answered, but wrong | 5 |
+
+- **The citation metric is stricter than it should be.** Each question is labelled with the single page it was drafted from, but the guide repeats many facts on other pages (for example, accommodation and security contacts). In 12 cases the assistant answered correctly from a different page, which counts as a citation miss (most of the gap between 83.5% accuracy and 67.1% citation correctness). Labelling questions with every page that answers them would make the metric fairer.
+- **Over-refusal is the main answer error.** 8 of 79 answerable questions got "I don't know". In 4 of those the right page *was* retrieved, so the prompt is making the model too cautious. The other 4 are retrieval misses.
+- **Refusals on unanswerable questions work.** 12 of 13 were correctly refused. The one exception asked about reporting bullying, which the guide's harassment section partly covers, so the question itself is borderline.
+- **Latency is dominated by the free API tier.** The median is about 5 s, but busy periods push the slowest 5% past 20 s.
 
 ## Project structure
 
