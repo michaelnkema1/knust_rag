@@ -18,7 +18,7 @@ services:
       - key: LLM_BASE_URL
         value: https://generativelanguage.googleapis.com/v1beta/openai/
       - key: LLM_MODEL
-        value: gemini-3.1-flash-lite
+        value: gemini-3.6-flash      # separate free daily quota from the model used for evals
       - key: PROMPT_VERSION
         value: v2
       - key: CHUNK_SIZE

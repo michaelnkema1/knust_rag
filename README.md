@@ -49,6 +49,7 @@ Free-tier behaviour to know about:
 - The disk is wiped on restart, so `data/feedback.jsonl` doesn't persist there.
 - Citation links redirect to the official KNUST copy of the PDF, since the PDF isn't in the repo.
 - `/ask` is limited to `ASK_RATE_LIMIT` questions per minute per visitor (default 8) so a public link can't use up the API quota.
+- Gemini's free tier allows **500 requests per day per model per project**, and one full eval run uses about 200 (an answer plus a judge call per question). The live app therefore uses a different model (`gemini-3.6-flash`) from the evals (`gemini-3.1-flash-lite`), so running evals can't exhaust the demo's quota. `/debug/llm` makes one test call and shows the provider's exact error (with a hash of the key, never the key) if something is wrong.
 
 ## Setup
 
