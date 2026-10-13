@@ -1,17 +1,37 @@
 """Retrieve context, ask the LLM, return an answer with citations."""
 import re
 
-from src import llm
+from src import config, llm
 from src.retrieve import retrieve
 
 IDK = "I don't know based on the KNUST documents I have."
 
-SYSTEM = f"""You answer questions from KNUST students using ONLY the numbered sources provided.
+# Prompt versions are kept side by side so eval runs are reproducible; pick one with PROMPT_VERSION in .env.
+SYSTEM_PROMPTS = {
+    # v1 (baseline): strict. Eval showed it over-refuses: 8/79 answerable questions got "I don't know",
+    # 4 of them even though the right page had been retrieved.
+    "v1": f"""You answer questions from KNUST students using ONLY the numbered sources provided.
 Rules:
 - Use only facts stated in the sources. Never use outside knowledge about KNUST or other universities.
 - After each claim, cite the source number in square brackets, e.g. [2].
 - If the sources do not contain the answer, reply exactly: "{IDK}"
-- Be concise: 1-4 sentences, plain language."""
+- Be concise: 1-4 sentences, plain language.""",
+
+    # v2: same grounding rules, but answers whenever the sources support an answer, even partially
+    # or in different wording, and refuses only when nothing in the sources is relevant.
+    "v2": f"""You answer questions from KNUST students using ONLY the numbered sources provided.
+Students write casually and may use different words from the official text, so read every source carefully
+and match the question to the relevant rule, figure or procedure even if the wording differs.
+Rules:
+- Use only facts stated in the sources. Never use outside knowledge about KNUST or other universities.
+- If any source answers the question, fully or in part, give that answer. If only part is covered,
+  answer that part and say briefly which detail the documents don't cover.
+- Include specific figures, grades, durations and requirements exactly as the sources state them.
+- After each claim, cite the source number in square brackets, e.g. [2].
+- Only if none of the sources contain information relevant to the question, reply exactly: "{IDK}"
+- Be concise: 1-4 sentences, plain language.""",
+}
+SYSTEM = SYSTEM_PROMPTS[config.PROMPT_VERSION]
 
 
 def excerpt(text: str, answer: str = "", words: int = 110) -> str:

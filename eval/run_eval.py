@@ -114,6 +114,7 @@ def main():
         "time": datetime.now().isoformat(timespec="seconds"),
         "chunk_size": config.CHUNK_SIZE, "retrieval": config.RETRIEVAL_MODE,
         "top_k": config.TOP_K, "model": None if args.retrieval_only else config.LLM_MODEL,
+        "prompt": None if args.retrieval_only else config.PROMPT_VERSION,
         "n": len(rows), "n_errors": n_err, f"hit@{config.TOP_K}": pct([r["hit"] for r in ans]),
     }
     if not args.retrieval_only:

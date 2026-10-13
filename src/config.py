@@ -8,15 +8,17 @@ load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
-CHUNKS_PATH = ROOT / "data" / "chunks.jsonl"
 CHROMA_DIR = ROOT / "data" / "chroma"
 
-COLLECTION = os.getenv("COLLECTION", "knust_regs")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
 # Chunking (experiment variables)
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))       # approx. words per chunk
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+
+# One index per chunk size, so several can exist side by side for experiments
+CHUNKS_PATH = ROOT / "data" / f"chunks_{CHUNK_SIZE}.jsonl"
+COLLECTION = os.getenv("COLLECTION", f"knust_regs_{CHUNK_SIZE}")
 
 # Retrieval
 TOP_K = int(os.getenv("TOP_K", "5"))
@@ -26,3 +28,6 @@ RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "vector")  # vector | bm25 | hybrid
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+
+# Answer prompt version (see SYSTEM_PROMPTS in src/answer.py)
+PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
