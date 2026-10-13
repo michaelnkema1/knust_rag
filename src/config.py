@@ -30,6 +30,7 @@ RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "vector")  # vector | bm25 | hybrid
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "4"))  # set to 1 on the web server to fail fast
 
 # Answer prompt version (see SYSTEM_PROMPTS in src/answer.py)
 PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v2")

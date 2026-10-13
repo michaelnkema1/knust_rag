@@ -274,11 +274,15 @@ async function ask(question) {
   const stop = showTyping();
   try {
     const r = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || 'Request failed');
+    const raw = await r.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch { data = {detail: r.status >= 500 ? 'The server is waking up or busy. Please try again in a minute' : `Unexpected response (${r.status})`}; }
+    if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail.replace(/\.$/, '') : 'Request failed');
     stop(); addBot(data);
   } catch (err) {
-    stop(); addBot('Sorry, something went wrong: ' + err.message + '. Please try again.', true);
+    const msg = err.message || 'Request failed';
+    stop(); addBot(/try again/i.test(msg) ? `Sorry — ${msg}.` : `Sorry, something went wrong: ${msg}. Please try again.`, true);
   }
   b.disabled = false; q.disabled = false; q.focus();
 }

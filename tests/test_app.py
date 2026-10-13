@@ -60,3 +60,20 @@ def test_excerpt_picks_window_matching_the_answer():
            " ".join(f"z{i}" for i in range(300))
     out = excerpt(text, "The Counselling Centre is located in the Harper Building")
     assert "Harper Building" in out and out.startswith("…") and out.endswith("…")
+
+
+def test_llm_errors_become_clear_messages(tmp_path, monkeypatch):
+    import httpx
+    import openai
+    monkeypatch.setattr(m, "FEEDBACK_LOG", tmp_path / "f.jsonl")
+    m._recent.clear()
+    req = httpx.Request("POST", "https://llm.example/v1/chat/completions")
+    cases = [
+        (openai.RateLimitError("quota", response=httpx.Response(429, request=req), body=None), 503, "daily limit"),
+        (openai.AuthenticationError("bad key", response=httpx.Response(401, request=req), body=None), 503, "credentials"),
+        (openai.APIConnectionError(request=req), 504, "reach"),
+    ]
+    for exc, code, words in cases:
+        with mock.patch.object(m, "ask", side_effect=exc):
+            r = TestClient(m.app).post("/ask", json={"question": "hello there"})
+        assert r.status_code == code and words in r.json()["detail"]

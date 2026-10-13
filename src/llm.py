@@ -27,9 +27,15 @@ def client() -> OpenAI:
     return _client
 
 
-def chat(messages: list[dict], model: str | None = None, temperature: float = 0.0) -> dict:
-    """Return {'text', 'latency_s', 'prompt_tokens', 'completion_tokens'}."""
-    for attempt in range(5):
+def chat(messages: list[dict], model: str | None = None, temperature: float = 0.0,
+         max_retries: int | None = None) -> dict:
+    """Return {'text', 'latency_s', 'prompt_tokens', 'completion_tokens'}.
+
+    Retries rate limits / server errors with backoff (5, 10, 20, 40 s). Evals use the default (4);
+    the web app sets LLM_MAX_RETRIES low so a visitor isn't left waiting over a minute.
+    """
+    retries = config.LLM_MAX_RETRIES if max_retries is None else max_retries
+    for attempt in range(retries + 1):
         t0 = time.perf_counter()
         try:
             resp = client().chat.completions.create(
@@ -37,10 +43,11 @@ def chat(messages: list[dict], model: str | None = None, temperature: float = 0.
             )
             break
         except RETRYABLE as e:
-            if attempt == 4:
+            print(f"  [llm] {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
+            if attempt == retries:
                 raise
-            wait = 5 * 2 ** attempt  # 5, 10, 20, 40 s
-            print(f"  [llm] {type(e).__name__}; retry {attempt + 1}/4 in {wait}s", file=sys.stderr, flush=True)
+            wait = 5 * 2 ** attempt
+            print(f"  [llm] retry {attempt + 1}/{retries} in {wait}s", file=sys.stderr, flush=True)
             time.sleep(wait)
     usage = getattr(resp, "usage", None)
     return {

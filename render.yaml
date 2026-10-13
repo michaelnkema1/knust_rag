@@ -31,3 +31,5 @@ services:
         value: "1"             # free instances have a fraction of one CPU
       - key: ASK_RATE_LIMIT
         value: "8"             # questions per minute per visitor
+      - key: LLM_MAX_RETRIES
+        value: "1"             # fail fast for visitors instead of retrying for over a minute

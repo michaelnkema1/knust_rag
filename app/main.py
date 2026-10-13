@@ -3,12 +3,14 @@
 Run:  uvicorn app.main:app --reload
 """
 import json
+import logging
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import openai
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -16,6 +18,7 @@ from pydantic import BaseModel, Field
 from src import config
 from src.answer import ask
 
+log = logging.getLogger("knust_rag")
 app = FastAPI(title="KNUST Regulations Assistant")
 STATIC = Path(__file__).parent / "static"
 FEEDBACK_LOG = config.ROOT / "data" / "feedback.jsonl"
@@ -72,6 +75,35 @@ def ask_endpoint(q: Question, request: Request):
         return ask(q.question)
     except FileNotFoundError:
         raise HTTPException(503, "Index not built yet. Run: python -m src.ingest")
+    # Turn LLM provider failures into clear messages (and log the real cause for the server logs).
+    except openai.RateLimitError as e:
+        log.warning("LLM rate limit: %s", e)
+        raise HTTPException(503, "The AI service is busy or its free daily limit has been reached. "
+                                 "Please try again in a few minutes.")
+    except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
+        log.error("LLM auth/permission error: %s", e)
+        raise HTTPException(503, "The AI service rejected this server's credentials or location. "
+                                 "The site owner needs to check the API key settings.")
+    except (openai.APIConnectionError, openai.APITimeoutError) as e:
+        log.error("LLM connection error: %s", e)
+        raise HTTPException(504, "Couldn't reach the AI service. Please try again.")
+    except openai.APIStatusError as e:
+        log.error("LLM API error %s: %s", e.status_code, e)
+        raise HTTPException(502, f"The AI service returned an error ({e.status_code}). Please try again.")
+
+
+@app.get("/debug/llm")
+def debug_llm(request: Request):
+    """Owner diagnostic: one tiny LLM call, returning the error type if it fails (never the key).
+    Shares the /ask rate limit so it can't be used to drain the quota."""
+    _check_rate_limit(request)
+    from src import llm
+    try:
+        out = llm.chat([{"role": "user", "content": "Reply with OK"}], max_retries=0)
+        return {"ok": True, "model": config.LLM_MODEL, "reply": out["text"][:20], "latency_s": out["latency_s"]}
+    except Exception as e:  # noqa: BLE001 - diagnostic endpoint
+        return {"ok": False, "model": config.LLM_MODEL, "base_url": config.LLM_BASE_URL,
+                "key_set": bool(config.LLM_API_KEY), "error": type(e).__name__, "detail": str(e)[:400]}
 
 
 @app.get("/docs-pdf/{name}")
