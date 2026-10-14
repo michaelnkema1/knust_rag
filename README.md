@@ -190,3 +190,9 @@ render.yaml     Render deployment blueprint
 - Answer accuracy is scored by an LLM judge, which was checked on sample right and wrong answers but can still make mistakes.
 - Latency figures come from a free API tier and vary with provider load.
 - Not an official KNUST service. Confirm important decisions with your faculty office.
+
+## License
+
+The code is released under the [MIT License](LICENSE).
+
+The KNUST Students' Guide and the text taken from it (including the chunks in `data/index/`) belong to KNUST and are not covered by this license. They are included only so the assistant can cite them. The official PDF is available from [knust.edu.gh](https://www.knust.edu.gh/).
