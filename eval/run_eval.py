@@ -47,7 +47,8 @@ def pages_hit(expected_pages: list[int], doc: str, items: list[dict]) -> bool:
 
 
 def judge(question: str, expected: str, answer: str) -> bool:
-    out = llm.chat([{"role": "user", "content": JUDGE.format(question=question, expected=expected, answer=answer)}])
+    out = llm.chat([{"role": "user", "content": JUDGE.format(question=question, expected=expected, answer=answer)}],
+                   model=config.JUDGE_MODEL)
     return out["text"].strip().strip("*").upper().startswith("CORRECT")
 
 
@@ -115,6 +116,7 @@ def main():
         "chunk_size": config.CHUNK_SIZE, "retrieval": config.RETRIEVAL_MODE,
         "top_k": config.TOP_K, "model": None if args.retrieval_only else config.LLM_MODEL,
         "prompt": None if args.retrieval_only else config.PROMPT_VERSION,
+        "judge": None if args.retrieval_only else config.JUDGE_MODEL,
         "n": len(rows), "n_errors": n_err, f"hit@{config.TOP_K}": pct([r["hit"] for r in ans]),
     }
     if not args.retrieval_only:

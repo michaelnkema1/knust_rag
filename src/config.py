@@ -31,6 +31,8 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "4"))  # set to 1 on the web server to fail fast
+# Model that grades eval answers. Kept fixed so different answer models are judged the same way.
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini-3.1-flash-lite")
 
 # Answer prompt version (see SYSTEM_PROMPTS in src/answer.py)
 PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v2")

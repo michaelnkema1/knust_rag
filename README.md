@@ -49,7 +49,7 @@ Free-tier behaviour to know about:
 - The disk is wiped on restart, so `data/feedback.jsonl` doesn't persist there.
 - Citation links redirect to the official KNUST copy of the PDF, since the PDF isn't in the repo.
 - `/ask` is limited to `ASK_RATE_LIMIT` questions per minute per visitor (default 8) so a public link can't use up the API quota.
-- Gemini's free tier allows **500 requests per day per model per project**, and one full eval run uses about 200 (an answer plus a judge call per question). The live app therefore uses a different model (`gemini-3.6-flash`) from the evals (`gemini-3.1-flash-lite`), so running evals can't exhaust the demo's quota. `/debug/llm` makes one test call and shows the provider's exact error (with a hash of the key, never the key) if something is wrong.
+- Gemini's free tier quota is **per model per project per day**: 500 requests for `gemini-3.1-flash-lite`, but only 20 for `gemini-3.6-flash`. One full eval run uses about 180 requests (an answer plus a judge call per question), and the live app shares the same quota, so heavy eval days can make the live app return "daily limit reached" until the quota resets (midnight Pacific time). The live app uses `gemini-3.1-flash-lite`, the model all results above were measured with. `/debug/llm` makes one test call and shows the provider's exact error (with a hash of the key, never the key) if something is wrong.
 
 ## Setup
 
@@ -139,7 +139,7 @@ Plain vector search did best. The questions are paraphrased in a student's own w
 
 **300-word chunks with top 10** give the model the same amount of text as 5 × 600 words, but in finer pieces. Accuracy is the same, but answers are much better grounded: citation correctness rose 10 points and wrong refusals fell from 6 to 2. For example, the "how many members does a new club need?" question now finds the exact sentence (750 members), which the 600-word setup missed because it sat in a neighbouring chunk. The cost is two unanswerable questions now get answers instead of refusals. Both are borderline (changing courses after the portal closes, and reporting bullying), and the answers quote relevant rules from the guide rather than inventing anything.
 
-The two v2 configurations got the same overall accuracy but failed on different questions (6 fixed, 6 newly wrong), which suggests a run-to-run noise of a few points. A repeat run of the 600-word v2 setup, to measure that variation directly, was stopped when the free tier's daily request limit ran out; finish it with `./run_experiments.sh` (completed questions are skipped). Latency differences between rows mostly reflect load on the free API tier.
+**Run-to-run variation is negligible.** A repeat of the 600-word v2 run (answers at temperature 0, same judge) gave identical results question by question: 69/79 correct both times, 0 answers flipped, the same 6 wrong refusals (87.3% accuracy; citations 69.6% vs 70.9% because two near-tied chunks swapped order). So the differences between configurations above are real, not noise. The two v2 configurations have the same accuracy but fail on different questions (6 fixed, 6 newly wrong by the 300-word setup). Latency differences between rows mostly reflect load on the free API tier.
 
 ### Chunk size (retrieval only, top 5)
 
