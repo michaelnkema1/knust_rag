@@ -56,3 +56,27 @@ def chat(messages: list[dict], model: str | None = None, temperature: float = 0.
         "prompt_tokens": getattr(usage, "prompt_tokens", None),
         "completion_tokens": getattr(usage, "completion_tokens", None),
     }
+
+
+def chat_stream(messages: list[dict], model: str | None = None, temperature: float = 0.0,
+                max_retries: int | None = None):
+    """Yield the answer text in pieces as the model produces it.
+
+    Retries (with the same backoff as chat) only happen before the first piece arrives;
+    once text has been sent to the user, an error is raised instead of starting over.
+    """
+    retries = config.LLM_MAX_RETRIES if max_retries is None else max_retries
+    for attempt in range(retries + 1):
+        try:
+            stream = client().chat.completions.create(
+                model=model or config.LLM_MODEL, messages=messages, temperature=temperature, stream=True
+            )
+            break
+        except RETRYABLE as e:
+            print(f"  [llm] {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
+            if attempt == retries:
+                raise
+            time.sleep(5 * 2 ** attempt)
+    for event in stream:
+        if event.choices and event.choices[0].delta and event.choices[0].delta.content:
+            yield event.choices[0].delta.content

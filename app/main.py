@@ -12,11 +12,11 @@ from typing import Literal
 
 import openai
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src import config
-from src.answer import ask
+from src.answer import ask, ask_stream
 
 log = logging.getLogger("knust_rag")
 app = FastAPI(title="KNUST Regulations Assistant")
@@ -68,28 +68,57 @@ def health():
     return {"ok": True}
 
 
+def _friendly_error(e: Exception) -> HTTPException:
+    """Turn LLM provider failures into clear messages (and log the real cause for the server logs)."""
+    if isinstance(e, FileNotFoundError):
+        return HTTPException(503, "Index not built yet. Run: python -m src.ingest")
+    if isinstance(e, openai.RateLimitError):
+        log.warning("LLM rate limit: %s", e)
+        return HTTPException(503, "The AI service is busy or its free daily limit has been reached. "
+                                  "Please try again in a few minutes.")
+    if isinstance(e, (openai.AuthenticationError, openai.PermissionDeniedError)):
+        log.error("LLM auth/permission error: %s", e)
+        return HTTPException(503, "The AI service rejected this server's credentials or location. "
+                                  "The site owner needs to check the API key settings.")
+    if isinstance(e, (openai.APIConnectionError, openai.APITimeoutError)):
+        log.error("LLM connection error: %s", e)
+        return HTTPException(504, "Couldn't reach the AI service. Please try again.")
+    if isinstance(e, openai.APIStatusError):
+        log.error("LLM API error %s: %s", e.status_code, e)
+        return HTTPException(502, f"The AI service returned an error ({e.status_code}). Please try again.")
+    log.exception("Unexpected error answering question")
+    return HTTPException(500, "Something went wrong on the server. Please try again.")
+
+
 @app.post("/ask")
 def ask_endpoint(q: Question, request: Request):
     _check_rate_limit(request)
     try:
         return ask(q.question)
-    except FileNotFoundError:
-        raise HTTPException(503, "Index not built yet. Run: python -m src.ingest")
-    # Turn LLM provider failures into clear messages (and log the real cause for the server logs).
-    except openai.RateLimitError as e:
-        log.warning("LLM rate limit: %s", e)
-        raise HTTPException(503, "The AI service is busy or its free daily limit has been reached. "
-                                 "Please try again in a few minutes.")
-    except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
-        log.error("LLM auth/permission error: %s", e)
-        raise HTTPException(503, "The AI service rejected this server's credentials or location. "
-                                 "The site owner needs to check the API key settings.")
-    except (openai.APIConnectionError, openai.APITimeoutError) as e:
-        log.error("LLM connection error: %s", e)
-        raise HTTPException(504, "Couldn't reach the AI service. Please try again.")
-    except openai.APIStatusError as e:
-        log.error("LLM API error %s: %s", e.status_code, e)
-        raise HTTPException(502, f"The AI service returned an error ({e.status_code}). Please try again.")
+    except (FileNotFoundError, openai.OpenAIError) as e:
+        raise _friendly_error(e)
+
+
+@app.post("/ask/stream")
+def ask_stream_endpoint(q: Question, request: Request):
+    """Same as /ask, but streams the answer as it is written.
+
+    Response is NDJSON (one JSON object per line):
+      {"type": "delta", "text": "..."}            pieces of the answer, in order
+      {"type": "done", ...same fields as /ask}     final answer with citations and excerpts
+      {"type": "error", "detail": "..."}           if something fails (possibly after some deltas)
+    """
+    _check_rate_limit(request)
+
+    def events():
+        try:
+            for event in ask_stream(q.question):
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except Exception as e:  # noqa: BLE001 - reported to the client as an error event
+            yield json.dumps({"type": "error", "detail": _friendly_error(e).detail}) + "\n"
+
+    return StreamingResponse(events(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/debug/llm")

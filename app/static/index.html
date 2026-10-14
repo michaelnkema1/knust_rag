@@ -58,6 +58,19 @@
   .me .bubble { background: var(--user-bg); color: var(--user-ink); border-color: transparent; border-bottom-right-radius: 4px; }
   .bot .bubble { border-bottom-left-radius: 4px; }
   .bubble.error { border-color: #B5523B; }
+  /* Rendered answer (markdown): normal wrapping, compact paragraphs and lists */
+  .answer { white-space: normal; }
+  .answer p { margin: 0 0 .65em; }
+  .answer ul, .answer ol { margin: .1em 0 .65em; padding-left: 1.35em; }
+  .answer li { margin: .2em 0; }
+  .answer > :last-child { margin-bottom: 0; }
+  .answer strong { font-weight: 650; }
+  .answer.streaming > :last-child::after { content: ""; display: inline-block; width: .5em; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--accent); border-radius: 2px; animation: blink 1s steps(2) infinite; }
+  .answer.streaming > ul:last-child::after, .answer.streaming > ol:last-child::after { content: none; }
+  .answer.streaming > ul:last-child > li:last-child::after, .answer.streaming > ol:last-child > li:last-child::after { content: ""; display: inline-block; width: .5em; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--accent); border-radius: 2px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { to { visibility: hidden; } }
+  .ref span { font: 700 .7rem/1.5 system-ui, sans-serif; color: var(--accent-ink); background: var(--accent); border-radius: 5px; padding: 0 6px; min-width: 18px; opacity: .7; }
+  .stream-error { margin-top: 10px; color: #B5523B; font-size: .88rem; white-space: normal; }
   .cite { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: .82rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; }
   .cite button { font: inherit; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
   .cite button:hover, .cite button[aria-expanded="true"] { border-color: var(--accent); color: var(--ink); }
@@ -88,7 +101,7 @@
   .progress { height: 3px; border-radius: 3px; background: var(--line); margin-top: 10px; overflow: hidden; }
   .progress b { display: block; height: 100%; width: 35%; background: var(--accent); border-radius: 3px; animation: slide 1.6s infinite ease-in-out; }
   @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
-  @media (prefers-reduced-motion: reduce) { .dots i, .progress b { animation: none; } .dots i { opacity: .8; } }
+  @media (prefers-reduced-motion: reduce) { .dots i, .progress b, .answer *::after { animation: none !important; } .dots i { opacity: .8; } }
 
   form { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 12px 16px; }
   .row { display: flex; gap: 8px; }
@@ -172,13 +185,15 @@ function el(tag, attrs = {}, text) {
   return e;
 }
 
-// Answer text with [1] / [1, 4] / [1][3] turned into clickable badges that open the matching source.
-function renderAnswer(container, text, citeMap, toggle) {
+// Text with [1] / [1, 4] / [1][3] turned into badges. With a citeMap they are buttons that open the
+// matching source; while streaming (citeMap null) they are plain placeholder badges.
+function renderCites(container, text, citeMap, toggle) {
   const re = /\[([\d,\s]+)\]/g; let last = 0, m;
   while ((m = re.exec(text))) {
     container.append(text.slice(last, m.index));
     const ref = el('span', {class: 'ref'});
-    for (const n of m[1].match(/\d+/g)) {
+    for (const n of m[1].match(/\d+/g) || []) {
+      if (!citeMap) { ref.append(el('span', {}, n)); continue; }
       if (!citeMap[n]) continue;
       const btn = el('button', {type: 'button', 'aria-label': `Show source ${n}`, 'data-n': n}, n);
       btn.addEventListener('click', () => toggle(n));
@@ -190,11 +205,58 @@ function renderAnswer(container, text, citeMap, toggle) {
   container.append(text.slice(last));
 }
 
+// Inline markdown: **bold** (an unclosed ** while streaming bolds to the end), then citation badges.
+function renderInline(container, text, citeMap, toggle) {
+  const re = /\*\*(.+?)(?:\*\*|$)/g; let last = 0, m;
+  while ((m = re.exec(text))) {
+    renderCites(container, text.slice(last, m.index), citeMap, toggle);
+    const s = el('strong'); renderCites(s, m[1], citeMap, toggle); container.append(s);
+    last = re.lastIndex;
+  }
+  renderCites(container, text.slice(last).replace(/\*\*$/, ''), citeMap, toggle);
+}
+
+// Small, safe markdown renderer (DOM nodes only, never innerHTML of model text):
+// paragraphs, "- " / "* " bullet lists, "1. " numbered lists, "# " headings shown as bold lines.
+function renderAnswer(container, text, citeMap, toggle) {
+  container.replaceChildren();
+  let para = null, list = null;
+  const endPara = () => { para = null; }, endList = () => { list = null; };
+  for (const raw of text.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    const bullet = line.match(/^[-*•]\s+(.*)$/), numbered = line.match(/^(\d+)[.)]\s+(.*)$/), head = line.match(/^#{1,6}\s+(.*)$/);
+    if (!line) { endPara(); endList(); continue; }
+    if (bullet || numbered) {
+      endPara();
+      const tag = bullet ? 'ul' : 'ol';
+      if (!list || list.tagName.toLowerCase() !== tag) {
+        list = el(tag); container.append(list);
+        if (numbered && numbered[1] !== '1') list.setAttribute('start', numbered[1]);
+      }
+      const li = el('li'); renderInline(li, bullet ? bullet[1] : numbered[2], citeMap, toggle); list.append(li);
+      continue;
+    }
+    if (list && /^\s{2,}/.test(raw) && list.lastChild) {   // indented continuation of a list item
+      list.lastChild.append(' '); renderInline(list.lastChild, line, citeMap, toggle); continue;
+    }
+    endList();
+    if (head) { endPara(); const p = el('p'); const s = el('strong'); renderInline(s, head[1], citeMap, toggle); p.append(s); container.append(p); continue; }
+    if (para) para.append(el('br')); else { para = el('p'); container.append(para); }
+    renderInline(para, line, citeMap, toggle);
+  }
+}
+
 function addBot(data, isError) {
   const bub = row('bot');
   if (isError) { bub.textContent = data; bub.classList.add('error'); return; }
+  const body = el('div', {class: 'answer'}); bub.append(body);
+  fillBot(bub, body, data);
+}
+
+// Final answer: re-render with clickable citation badges, then source tags, source panel and feedback.
+function fillBot(bub, body, data) {
   const cites = data.citations || [], citeMap = Object.fromEntries(cites.map(c => [String(c.n), c]));
-  const body = el('div'); bub.append(body);
+  body.classList.remove('streaming');
   const panel = el('div', {class: 'source', hidden: ''});
   let open = null;
   const tagButtons = {};
@@ -269,21 +331,73 @@ function showTyping() {
   return () => { clearInterval(timer); bub.parentElement.remove(); };
 }
 
+const sorry = msg => /try again/i.test(msg) ? `Sorry — ${msg.replace(/\.$/, '')}.` : `Sorry, something went wrong: ${msg.replace(/\.$/, '')}. Please try again.`;
+
+// Streams the answer from /ask/stream (NDJSON: delta… then done, or error) and renders it as it arrives.
 async function ask(question) {
   addUser(question); q.value = ''; b.disabled = true; q.disabled = true;
-  const stop = showTyping();
+  let stop = showTyping(), bub = null, body = null, text = '', shown = 0, final = null, finished = false, running = false;
+  const stopTyping = () => { if (stop) { stop(); stop = null; } };
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // The provider sends text in uneven bursts; reveal it word by word at a steady pace that speeds up
+  // when far behind, so long answers never lag much. Once everything is shown, attach the citations.
+  const frame = () => {
+    if (finished) { running = false; return; }
+    if (shown < text.length) {
+      let target = reduceMotion ? text.length : shown + Math.max(2, Math.ceil((text.length - shown) / 25));
+      const sp = text.slice(target).search(/\s/);            // end on a word boundary
+      shown = sp < 0 ? text.length : Math.min(text.length, target + sp);
+      const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80;
+      renderAnswer(body, text.slice(0, shown), null);
+      if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    }
+    if (final && shown >= text.length) { finished = true; running = false; fillBot(bub, body, final); return; }
+    requestAnimationFrame(frame);
+  };
+  const start = () => { if (!running) { running = true; requestAnimationFrame(frame); } };
+  const fail = msg => {
+    finished = true; stopTyping();
+    if (!bub) { addBot(sorry(msg), true); return; }
+    body.classList.remove('streaming'); renderAnswer(body, text, null);
+    bub.append(el('div', {class: 'stream-error'}, sorry(msg)));
+  };
+  const handle = ev => {
+    if (finished) return;
+    if (ev.type === 'delta' || ev.type === 'done') {
+      if (!bub) { stopTyping(); bub = row('bot'); body = el('div', {class: 'answer streaming'}); bub.append(body); }
+      if (ev.type === 'delta') text += ev.text;
+      else { final = ev; text = ev.answer || text; shown = Math.min(shown, text.length); }
+      start();
+    } else if (ev.type === 'error') {
+      fail(ev.detail || 'Request failed');
+    }
+  };
   try {
-    const r = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
-    const raw = await r.text();
-    let data;
-    try { data = JSON.parse(raw); }
-    catch { data = {detail: r.status >= 500 ? 'The server is waking up or busy. Please try again in a minute' : `Unexpected response (${r.status})`}; }
-    if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail.replace(/\.$/, '') : 'Request failed');
-    stop(); addBot(data);
+    const r = await fetch('/ask/stream', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
+    if (!r.ok || !r.body) {
+      let detail;
+      try { detail = (await r.json()).detail; } catch { /* not JSON */ }
+      if (typeof detail !== 'string') detail = r.status >= 500 ? 'The server is waking up or busy. Please try again in a minute' : `Unexpected response (${r.status})`;
+      throw new Error(detail);
+    }
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const {value, done} = await reader.read();
+      if (value) buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (line) handle(JSON.parse(line));
+      }
+      if (done) break;
+    }
+    if (buf.trim()) handle(JSON.parse(buf));
+    if (!final && !finished) fail('The connection closed before the answer finished. Please try again');
   } catch (err) {
-    const msg = err.message || 'Request failed';
-    stop(); addBot(/try again/i.test(msg) ? `Sorry — ${msg}.` : `Sorry, something went wrong: ${msg}. Please try again.`, true);
+    if (!final && !finished) fail(err.message || 'Request failed');
   }
+  while (!finished) await new Promise(res => setTimeout(res, 50));   // let the reveal finish
   b.disabled = false; q.disabled = false; q.focus();
 }
 

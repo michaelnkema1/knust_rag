@@ -1,5 +1,6 @@
 """Retrieve context, ask the LLM, return an answer with citations."""
 import re
+import time
 
 from src import config, llm
 from src.retrieve import retrieve
@@ -59,15 +60,18 @@ def format_sources(chunks: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def ask(question: str, k: int | None = None, mode: str | None = None, model: str | None = None) -> dict:
+def _prepare(question: str, k: int | None, mode: str | None) -> tuple[list[dict], list[dict]]:
     chunks = retrieve(question, k=k, mode=mode)
     messages = [
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": f"Sources:\n\n{format_sources(chunks)}\n\nQuestion: {question}"},
     ]
-    out = llm.chat(messages, model=model)
-    text = out["text"].strip()
+    return chunks, messages
 
+
+def _finalize(question: str, chunks: list[dict], text: str) -> dict:
+    """Citations (with excerpts), refusal flag and retrieval info for a finished answer."""
+    text = text.strip()
     # Handles [2], [1, 4] and [1][3] styles
     nums = {int(n) for group in re.findall(r"\[([\d,\s]+)\]", text) for n in re.findall(r"\d+", group)}
     cited_nums = sorted(n for n in nums if 0 < n <= len(chunks))
@@ -82,10 +86,32 @@ def ask(question: str, k: int | None = None, mode: str | None = None, model: str
         "refused": text.startswith("I don't know"),
         "citations": citations,
         "retrieved": [{"doc": c["doc"], "pages": c["pages"], "score": round(c["score"], 4)} for c in chunks],
-        "latency_s": out["latency_s"],
-        "prompt_tokens": out["prompt_tokens"],
-        "completion_tokens": out["completion_tokens"],
     }
+
+
+def ask(question: str, k: int | None = None, mode: str | None = None, model: str | None = None) -> dict:
+    chunks, messages = _prepare(question, k, mode)
+    out = llm.chat(messages, model=model)
+    return {**_finalize(question, chunks, out["text"]),
+            "latency_s": out["latency_s"],
+            "prompt_tokens": out["prompt_tokens"],
+            "completion_tokens": out["completion_tokens"]}
+
+
+def ask_stream(question: str, k: int | None = None, mode: str | None = None, model: str | None = None):
+    """Yield {"type": "delta", "text": ...} events while the answer is written, then one
+    {"type": "done", ...} event with the full answer, citations and timings."""
+    t0 = time.perf_counter()
+    chunks, messages = _prepare(question, k, mode)
+    parts, first = [], None
+    for piece in llm.chat_stream(messages, model=model):
+        if first is None:
+            first = time.perf_counter()
+        parts.append(piece)
+        yield {"type": "delta", "text": piece}
+    done = time.perf_counter()
+    yield {"type": "done", **_finalize(question, chunks, "".join(parts)),
+           "first_token_s": round((first or done) - t0, 2), "latency_s": round(done - t0, 2)}
 
 
 if __name__ == "__main__":
