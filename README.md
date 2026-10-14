@@ -25,6 +25,7 @@ The default model is **Gemini 3.1 Flash-Lite** through Google's OpenAI-compatibl
 
 - **Clickable citations.** The `[n]` markers in an answer and the page tags under it open the source passage (the ~110 words of the retrieved chunk that best match the answer) with a link that opens the PDF at that page.
 - **Feedback.** Each answer has thumbs up/down. A thumbs-down can carry a short comment. Feedback is appended to `data/feedback.jsonl` (git-ignored); thumbs-down rows are candidates for new eval questions.
+- **Streaming answers.** The answer appears word by word as the model writes it (via `/ask/stream`), so the first words show up as soon as the model starts instead of after the whole answer. Bold text and bullet/numbered lists are rendered with a small DOM-based markdown renderer (model text is never inserted as HTML). Citations, sources and feedback attach once the answer is complete.
 - **Loading state.** Animated typing dots and a status line that changes the longer a request takes, so slow free-tier responses don't look frozen.
 - **Theme.** Deep green `#0F372F` and gold `#ECBC6B`, with a dark mode that follows the system setting.
 
@@ -32,6 +33,7 @@ The default model is **Gemini 3.1 Flash-Lite** through Google's OpenAI-compatibl
 | --- | --- |
 | `GET /` | Chat page |
 | `POST /ask` | `{"question": "..."}` → answer, citations (with excerpts), retrieved chunks, latency, tokens |
+| `POST /ask/stream` | Same input; streams NDJSON lines: `{"type": "delta", "text"}` pieces, then `{"type": "done", ...}` with the same fields as `/ask` (plus `first_token_s`), or `{"type": "error", "detail"}` |
 | `GET /docs-pdf/{name}` | Serves an indexed PDF from `data/raw/` (nothing else), or redirects to the official public copy when the PDF isn't on the server, e.g. `/docs-pdf/students_guide_2023.pdf#page=78` |
 | `POST /feedback` | `{"question", "answer", "rating": "up" or "down", "comment"}` |
 
@@ -48,7 +50,7 @@ Free-tier behaviour to know about:
 - The service sleeps after 15 minutes without traffic; the next visit takes about a minute to wake it.
 - The disk is wiped on restart, so `data/feedback.jsonl` doesn't persist there.
 - Citation links redirect to the official KNUST copy of the PDF, since the PDF isn't in the repo.
-- `/ask` is limited to `ASK_RATE_LIMIT` questions per minute per visitor (default 8) so a public link can't use up the API quota.
+- `/ask` and `/ask/stream` are limited to `ASK_RATE_LIMIT` questions per minute per visitor (default 8) so a public link can't use up the API quota.
 - Gemini's free tier quota is **per model per project per day**: 500 requests for `gemini-3.1-flash-lite`, but only 20 for `gemini-3.6-flash`. One full eval run uses about 180 requests (an answer plus a judge call per question), and the live app shares the same quota, so heavy eval days can make the live app return "daily limit reached" until the quota resets (midnight Pacific time). The live app uses `gemini-3.1-flash-lite`, the model all results above were measured with. `/debug/llm` makes one test call and shows the provider's exact error (with a hash of the key, never the key) if something is wrong.
 
 ## Setup
