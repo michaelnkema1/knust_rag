@@ -2,6 +2,10 @@
 
 A retrieval-augmented generation (RAG) assistant that answers KNUST students' questions about university regulations from the official **KNUST Students' Guide and Code of Conduct (2023)**. Every answer cites the PDF page it came from, and the assistant says "I don't know" when the guide doesn't cover the question.
 
+**Live demo:** https://knust-rag.onrender.com (free tier: the first visit after a quiet period can take about a minute to wake up)
+
+![Demo: asking three questions, answers streaming in with page citations, opening a source passage and giving feedback](docs/demo.gif)
+
 The project is built around measurement: a reviewed 92-question eval set, automatic scoring, and experiments comparing retrieval methods, chunk sizes and models.
 
 ## How it works
